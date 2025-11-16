@@ -1,21 +1,99 @@
-MIT License
 
-Copyright (c) 2025 Ibrahim Akinyera
+---
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+### C. Minimal Starter Code
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+Create `src/nxtabroad_data_validation/validators.py`:
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+```python
+from dataclasses import dataclass
+from typing import List, Literal, Optional
+import pandas as pd
+
+
+IssueLevel = Literal["ERROR", "WARNING"]
+
+
+@dataclass
+class ValidationIssue:
+    level: IssueLevel
+    message: str
+    row_index: Optional[int] = None
+    column: Optional[str] = None
+
+
+@dataclass
+class ValidationResult:
+    is_valid: bool
+    issues: List[ValidationIssue]
+
+
+REQUIRED_COLUMNS = [
+    "full_name",
+    "passport_number",
+    "country_of_residence",
+    "target_country",
+    "available_funds_gbp",
+    "intended_intake",
+]
+
+
+def validate_applicant_sheet(path: str) -> ValidationResult:
+    """Basic CSV validation – extend with more rules as needed."""
+    df = pd.read_csv(path)
+    issues: List[ValidationIssue] = []
+
+    # Check required columns
+    for col in REQUIRED_COLUMNS:
+        if col not in df.columns:
+            issues.append(
+                ValidationIssue(
+                    level="ERROR",
+                    message=f"Missing required column: '{col}'",
+                )
+            )
+
+    # If required cols missing, no need to go deeper
+    if any(i.level == "ERROR" and "Missing required column" in i.message for i in issues):
+        return ValidationResult(is_valid=False, issues=issues)
+
+    # Check for missing key values
+    for col in REQUIRED_COLUMNS:
+        missing_rows = df[df[col].isna()]
+        for idx in missing_rows.index:
+            issues.append(
+                ValidationIssue(
+                    level="ERROR",
+                    message=f"Missing value in required column '{col}'",
+                    row_index=int(idx),
+                    column=col,
+                )
+            )
+
+    # Simple numeric threshold (dummy threshold, not immigration advice)
+    for idx, row in df.iterrows():
+        try:
+            funds = float(row["available_funds_gbp"])
+        except (TypeError, ValueError):
+            issues.append(
+                ValidationIssue(
+                    level="ERROR",
+                    message="Invalid numeric value in 'available_funds_gbp'",
+                    row_index=int(idx),
+                    column="available_funds_gbp",
+                )
+            )
+            continue
+
+        if funds < 5000:  # placeholder threshold
+            issues.append(
+                ValidationIssue(
+                    level="WARNING",
+                    message="Available funds below indicative threshold (5000 GBP).",
+                    row_index=int(idx),
+                    column="available_funds_gbp",
+                )
+            )
+
+    is_valid = not any(i.level == "ERROR" for i in issues)
+    return ValidationResult(is_valid=is_valid, issues=issues)
